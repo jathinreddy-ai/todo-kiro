@@ -35,9 +35,11 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = async () => {
     if (!isSupabaseConfigured) return { error: "Supabase not configured" };
+    // Use the current origin so it works on both localhost and production
+    const redirectTo = window.location.origin;
     return supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
   };
 
