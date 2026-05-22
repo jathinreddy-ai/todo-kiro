@@ -56,6 +56,14 @@ export function AuthProvider({ children }) {
   const signOut = async () => {
     if (!isSupabaseConfigured) return;
     await supabase.auth.signOut();
+    // Clear the old shared localStorage keys (legacy cleanup)
+    try {
+      localStorage.removeItem("todo-app:tasks");
+      localStorage.removeItem("todo-app:filter");
+      localStorage.removeItem("todo-app:sort");
+    } catch {
+      /* ignore */
+    }
     setUser(null);
   };
 

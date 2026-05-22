@@ -1,26 +1,32 @@
 // Global task state with useReducer.
-// Storage priority: Supabase (primary) → Firebase (realtime) → localStorage (offline fallback).
+//
+// Storage strategy:
+//   LOGGED IN  → tasks loaded from Supabase, cached in user-scoped localStorage key
+//                mutations sync to Supabase + Firebase in real time
+//   LOGGED OUT → empty task list (no cross-user data leakage)
+//
+// localStorage key is scoped per user: `todo-app:tasks:{userId}`
+// so different users on the same browser never share task data.
 import {
   createContext,
   useContext,
   useReducer,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import { nanoid } from "nanoid";
-import { useLocalStorage } from "../hooks/useLocalStorage";
-import { SAMPLE_TASKS } from "../utils/sampleData";
 import { getVisibleTasks } from "../utils/taskHelpers";
 import {
   fetchTasksFromSupabase,
-  upsertAllTasksToSupabase,
   syncTaskUpsert,
   syncTaskDelete,
   subscribeToFirestoreTasks,
 } from "../lib/taskSync";
 import { isSupabaseConfigured } from "../lib/supabase";
 
-// ─── Initial State ────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const DEFAULT_FILTER = {
   status: "all",
   category: null,
@@ -29,11 +35,38 @@ const DEFAULT_FILTER = {
 };
 const DEFAULT_SORT = "manual";
 
+// User-scoped localStorage helpers — never mix data between users
+function getUserKey(userId, key) {
+  return `todo-app:${userId}:${key}`;
+}
+
+function readUserStorage(userId, key, fallback) {
+  if (!userId) return fallback;
+  try {
+    const raw = localStorage.getItem(getUserKey(userId, key));
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeUserStorage(userId, key, value) {
+  if (!userId) return;
+  try {
+    localStorage.setItem(getUserKey(userId, key), JSON.stringify(value));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 function taskReducer(state, action) {
   switch (action.type) {
     case "LOAD_TASKS":
       return { ...state, tasks: action.payload, isLoading: false };
+
+    case "SET_LOADING":
+      return { ...state, isLoading: action.payload };
 
     case "ADD_TASK": {
       const newTask = {
@@ -113,39 +146,52 @@ function taskReducer(state, action) {
 const TaskContext = createContext(null);
 
 export function TaskProvider({ children, userId }) {
-  const [savedTasks, setSavedTasks] = useLocalStorage("todo-app:tasks", null);
-  const [savedFilter, setSavedFilter] = useLocalStorage(
-    "todo-app:filter",
-    DEFAULT_FILTER,
-  );
-  const [savedSort, setSavedSort] = useLocalStorage(
-    "todo-app:sort",
-    DEFAULT_SORT,
-  );
-
+  // Initial state depends on whether user is logged in
   const [state, dispatch] = useReducer(taskReducer, {
-    tasks: savedTasks && savedTasks.length > 0 ? savedTasks : SAMPLE_TASKS,
-    filter: savedFilter || DEFAULT_FILTER,
-    sort: savedSort || DEFAULT_SORT,
+    // Logged out → empty list. Logged in → try user-scoped cache first.
+    tasks: userId ? readUserStorage(userId, "tasks", null) || [] : [],
+    filter: userId
+      ? readUserStorage(userId, "filter", DEFAULT_FILTER)
+      : DEFAULT_FILTER,
+    sort: userId ? readUserStorage(userId, "sort", DEFAULT_SORT) : DEFAULT_SORT,
     isLoading: !!userId && isSupabaseConfigured,
     lastAction: null,
   });
 
-  // ── Load tasks from Supabase on sign-in ──────────────────────────────────
-  useEffect(() => {
-    if (!userId || !isSupabaseConfigured) return;
+  // Track previous userId to detect sign-in / sign-out transitions
+  const prevUserIdRef = useRef(userId);
 
+  // ── React to auth changes (sign-in / sign-out) ────────────────────────────
+  useEffect(() => {
+    const prevUserId = prevUserIdRef.current;
+    prevUserIdRef.current = userId;
+
+    if (!userId) {
+      // User signed out → clear task list immediately
+      dispatch({ type: "LOAD_TASKS", payload: [] });
+      return;
+    }
+
+    if (userId !== prevUserId) {
+      // New user signed in → reset to their cached tasks while loading from Supabase
+      const cached = readUserStorage(userId, "tasks", null);
+      dispatch({ type: "LOAD_TASKS", payload: cached || [] });
+    }
+
+    if (!isSupabaseConfigured) {
+      dispatch({ type: "SET_LOADING", payload: false });
+      return;
+    }
+
+    // Fetch authoritative data from Supabase
+    dispatch({ type: "SET_LOADING", payload: true });
     fetchTasksFromSupabase(userId).then((tasks) => {
-      if (tasks && tasks.length > 0) {
+      if (tasks !== null) {
+        // Always trust Supabase as the source of truth
         dispatch({ type: "LOAD_TASKS", payload: tasks });
-      } else if (tasks !== null) {
-        // Signed in but no cloud tasks yet — seed from localStorage
-        const local =
-          savedTasks && savedTasks.length > 0 ? savedTasks : SAMPLE_TASKS;
-        dispatch({ type: "LOAD_TASKS", payload: local });
-        upsertAllTasksToSupabase(local, userId);
       } else {
-        dispatch({ type: "LOAD_TASKS", payload: state.tasks });
+        // Supabase unavailable — fall back to cache
+        dispatch({ type: "SET_LOADING", payload: false });
       }
     });
   }, [userId]);
@@ -154,6 +200,7 @@ export function TaskProvider({ children, userId }) {
   useEffect(() => {
     if (!userId) return;
     const unsub = subscribeToFirestoreTasks(userId, (remoteTasks) => {
+      // Only update if Firebase has data (avoids overwriting with empty on init)
       if (remoteTasks.length > 0) {
         dispatch({ type: "LOAD_TASKS", payload: remoteTasks });
       }
@@ -161,7 +208,7 @@ export function TaskProvider({ children, userId }) {
     return unsub;
   }, [userId]);
 
-  // ── Sync lastAction to backends ───────────────────────────────────────────
+  // ── Sync mutations to backends ────────────────────────────────────────────
   useEffect(() => {
     if (!state.lastAction || !userId) return;
     const { type, task, taskId, tasks } = state.lastAction;
@@ -177,16 +224,18 @@ export function TaskProvider({ children, userId }) {
     dispatch({ type: "CLEAR_LAST_ACTION" });
   }, [state.lastAction, userId]);
 
-  // ── Persist to localStorage ───────────────────────────────────────────────
+  // ── Persist to user-scoped localStorage (only when logged in) ────────────
   useEffect(() => {
-    setSavedTasks(state.tasks);
-  }, [state.tasks]);
+    if (userId) writeUserStorage(userId, "tasks", state.tasks);
+  }, [state.tasks, userId]);
+
   useEffect(() => {
-    setSavedFilter(state.filter);
-  }, [state.filter]);
+    if (userId) writeUserStorage(userId, "filter", state.filter);
+  }, [state.filter, userId]);
+
   useEffect(() => {
-    setSavedSort(state.sort);
-  }, [state.sort]);
+    if (userId) writeUserStorage(userId, "sort", state.sort);
+  }, [state.sort, userId]);
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const visibleTasks = useMemo(
@@ -202,17 +251,21 @@ export function TaskProvider({ children, userId }) {
     return { total, completed, active, pct };
   }, [visibleTasks]);
 
-  const value = {
-    tasks: state.tasks,
-    visibleTasks,
-    filter: state.filter,
-    sort: state.sort,
-    isLoading: state.isLoading,
-    stats,
-    dispatch,
-  };
-
-  return <TaskContext.Provider value={value}>{children}</TaskContext.Provider>;
+  return (
+    <TaskContext.Provider
+      value={{
+        tasks: state.tasks,
+        visibleTasks,
+        filter: state.filter,
+        sort: state.sort,
+        isLoading: state.isLoading,
+        stats,
+        dispatch,
+      }}
+    >
+      {children}
+    </TaskContext.Provider>
+  );
 }
 
 export function useTaskContext() {
