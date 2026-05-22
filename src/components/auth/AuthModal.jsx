@@ -52,20 +52,34 @@ export function AuthModal({ isOpen, onClose }) {
         return;
       }
 
-      // If session is returned immediately → email confirmation is disabled → user is signed in
+      // Session returned immediately = email confirmation disabled = signed in now
       if (data?.session) {
         toast.success("Account created! Welcome 🎉");
         onClose();
         return;
       }
 
-      // If only user returned (no session) → email confirmation is required
+      // User returned but no session = email confirmation required
+      // Also handles the case where Supabase returns identities=[] (email already registered)
       if (data?.user) {
+        const identities = data.user.identities ?? [];
+        if (identities.length === 0) {
+          // Email already registered — tell user to sign in instead
+          toast.error(
+            "An account with this email already exists. Please sign in.",
+          );
+          setMode("signin");
+          return;
+        }
+        // New account, needs email confirmation
         setMode("confirm");
         return;
       }
 
-      toast.error("Something went wrong. Please try again.");
+      // Supabase sometimes returns data: { user: null, session: null } with no error
+      // when email confirmation is enabled and the signup "succeeded" silently
+      // Treat this as needing confirmation
+      setMode("confirm");
     } else {
       // Sign in
       const { data, error } = await signInWithEmail(email, password);
