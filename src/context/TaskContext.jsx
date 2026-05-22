@@ -19,6 +19,8 @@ import { nanoid } from "nanoid";
 import { getVisibleTasks } from "../utils/taskHelpers";
 import {
   fetchTasksFromSupabase,
+  fetchTasksFromFirestore,
+  upsertAllTasksToSupabase,
   syncTaskUpsert,
   syncTaskDelete,
   subscribeToFirestoreTasks,
@@ -185,10 +187,20 @@ export function TaskProvider({ children, userId }) {
 
     // Fetch authoritative data from Supabase
     dispatch({ type: "SET_LOADING", payload: true });
-    fetchTasksFromSupabase(userId).then((tasks) => {
-      if (tasks !== null) {
-        // Always trust Supabase as the source of truth
+    fetchTasksFromSupabase(userId).then(async (tasks) => {
+      if (tasks !== null && tasks.length > 0) {
+        // Supabase has data — use it as source of truth
         dispatch({ type: "LOAD_TASKS", payload: tasks });
+      } else if (tasks !== null && tasks.length === 0) {
+        // Supabase returned empty — try Firestore as fallback
+        const firestoreTasks = await fetchTasksFromFirestore(userId);
+        if (firestoreTasks && firestoreTasks.length > 0) {
+          dispatch({ type: "LOAD_TASKS", payload: firestoreTasks });
+          // Back-fill Supabase from Firestore
+          upsertAllTasksToSupabase(firestoreTasks, userId);
+        } else {
+          dispatch({ type: "LOAD_TASKS", payload: [] });
+        }
       } else {
         // Supabase unavailable — fall back to cache
         dispatch({ type: "SET_LOADING", payload: false });
@@ -209,9 +221,20 @@ export function TaskProvider({ children, userId }) {
   }, [userId]);
 
   // ── Sync mutations to backends ────────────────────────────────────────────
+  // Use a ref to queue the action so it survives the CLEAR_LAST_ACTION dispatch
+  const pendingActionRef = useRef(null);
+
   useEffect(() => {
     if (!state.lastAction || !userId) return;
-    const { type, task, taskId, tasks } = state.lastAction;
+    // Store in ref before clearing
+    pendingActionRef.current = state.lastAction;
+    dispatch({ type: "CLEAR_LAST_ACTION" });
+  }, [state.lastAction, userId]);
+
+  useEffect(() => {
+    if (!pendingActionRef.current || !userId) return;
+    const { type, task, taskId, tasks } = pendingActionRef.current;
+    pendingActionRef.current = null;
 
     if (type === "ADD" || type === "UPDATE") {
       syncTaskUpsert(task, userId);
@@ -220,9 +243,7 @@ export function TaskProvider({ children, userId }) {
     } else if (type === "REORDER") {
       tasks.forEach((t) => syncTaskUpsert(t, userId));
     }
-
-    dispatch({ type: "CLEAR_LAST_ACTION" });
-  }, [state.lastAction, userId]);
+  });
 
   // ── Persist to user-scoped localStorage (only when logged in) ────────────
   useEffect(() => {
