@@ -1,0 +1,370 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Dynamic accent color via CSS custom properties ─────────────────────── */
+/* These are overridden at runtime by UIContext when user picks a color.      */
+:root {
+  --accent-50: #f0f4ff;
+  --accent-100: #e0e9ff;
+  --accent-200: #c7d7fe;
+  --accent-300: #a5b4fc;
+  --accent-400: #818cf8;
+  --accent-500: #6366f1;
+  --accent-600: #4f46e5;
+  --accent-700: #4338ca;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+
+  /* Gradient mesh orb colors — updated with accent */
+  --orb1: rgba(99, 102, 241, 0.45);
+  --orb2: rgba(139, 92, 246, 0.35);
+  --orb3: rgba(236, 72, 153, 0.25);
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  /* Smooth theme transitions — exclude transform/opacity so animations aren't sluggish */
+  *,
+  *::before,
+  *::after {
+    transition-property:
+      background-color, border-color, color, fill, stroke, box-shadow;
+    transition-duration: 200ms;
+    transition-timing-function: ease;
+  }
+}
+
+/* ─── Gradient mesh background scene ─────────────────────────────────────── */
+/* This is the "canvas" that glass elements blur against.                     */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    #f8faff 0%,
+    #eef2ff 40%,
+    #fdf4ff 70%,
+    #fff7ed 100%
+  );
+}
+.dark .app-bg {
+  background: linear-gradient(
+    135deg,
+    #0a0a1a 0%,
+    #0f0f2e 35%,
+    #1a0a2e 65%,
+    #0a1a1a 100%
+  );
+}
+
+/* Animated gradient orbs */
+.app-bg::before,
+.app-bg::after,
+.app-bg .orb3 {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  animation: orbFloat 12s ease-in-out infinite alternate;
+}
+.app-bg::before {
+  width: 600px;
+  height: 600px;
+  top: -150px;
+  left: -100px;
+  background: var(--orb1);
+  animation-duration: 14s;
+}
+.app-bg::after {
+  width: 500px;
+  height: 500px;
+  bottom: -100px;
+  right: -80px;
+  background: var(--orb2);
+  animation-duration: 10s;
+  animation-delay: -4s;
+}
+.app-bg .orb3 {
+  width: 400px;
+  height: 400px;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--orb3);
+  animation-duration: 16s;
+  animation-delay: -8s;
+}
+
+@keyframes orbFloat {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(40px, -30px) scale(1.05);
+  }
+  66% {
+    transform: translate(-20px, 40px) scale(0.97);
+  }
+  100% {
+    transform: translate(30px, 20px) scale(1.03);
+  }
+}
+
+/* ─── Glass surface — the real deal ──────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.dark .glass {
+  background: rgba(15, 15, 40, 0.55);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Glass card variant — rounded, used for task cards and stat cards */
+.glass-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 1rem;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.dark .glass-card {
+  background: rgba(20, 20, 50, 0.55);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 1rem;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Solid card — fallback when glass mode is off */
+.solid-card {
+  @apply bg-white dark:bg-slate-800
+         border border-slate-100 dark:border-slate-700
+         rounded-2xl shadow-sm;
+}
+
+/* ─── Accent color utilities (use CSS vars, not Tailwind hardcoded) ───────── */
+.accent-bg {
+  background-color: var(--accent-500) !important;
+}
+.accent-bg:hover {
+  background-color: var(--accent-600) !important;
+}
+.accent-text {
+  color: var(--accent-500) !important;
+}
+.accent-border {
+  border-color: var(--accent-500) !important;
+}
+.accent-ring {
+  --tw-ring-color: var(--accent-500) !important;
+}
+.accent-shadow {
+  box-shadow: 0 4px 14px var(--accent-glow) !important;
+}
+
+/* accent-gradient: gradient when gradient-mode is on, flat color when off */
+.accent-gradient {
+  background-color: var(--accent-500);
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-500),
+    var(--accent-700)
+  );
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-500), var(--accent-300));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── logo-orb: the filled accent circle/button surface ─────────────────── */
+/* Uses background-color so inline style can override it when needed.        */
+.logo-orb {
+  background-color: var(--accent-500) !important;
+  background-image: none !important;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* ─── nav-active: active sidebar nav item ───────────────────────────────── */
+.nav-active {
+  background-color: var(--accent-500) !important;
+  background-image: none !important;
+  color: white !important;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+/* ─── chip-active: active filter chip ───────────────────────────────────── */
+.chip-active {
+  background-color: var(--accent-500) !important;
+  background-image: none !important;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* ─── accent-progress: progress bar fill ────────────────────────────────── */
+.accent-progress {
+  background-color: var(--accent-500) !important;
+  background-image: none !important;
+}
+
+/* ─── Gradient mode — toggled via .gradient-mode on <html> ──────────────── */
+/* When ON: gradient surfaces use linear-gradient.                           */
+/* When OFF: flat accent-500 color (rules above already handle this).        */
+
+.gradient-mode .accent-gradient {
+  background-color: var(--accent-500) !important;
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-500),
+    var(--accent-700)
+  ) !important;
+}
+html:not(.gradient-mode) .accent-gradient {
+  background-color: var(--accent-500) !important;
+  background-image: none !important;
+}
+
+/* Background orbs */
+.gradient-mode .app-bg::before {
+  background: radial-gradient(circle, var(--orb1), transparent 70%);
+}
+.gradient-mode .app-bg::after {
+  background: radial-gradient(circle, var(--orb2), transparent 70%);
+}
+.gradient-mode .app-bg .orb3 {
+  background: radial-gradient(circle, var(--orb3), transparent 70%);
+}
+html:not(.gradient-mode) .app-bg::before {
+  background: var(--orb1);
+}
+html:not(.gradient-mode) .app-bg::after {
+  background: var(--orb2);
+}
+html:not(.gradient-mode) .app-bg .orb3 {
+  background: var(--orb3);
+}
+
+/* Gradient text — only active in gradient mode */
+.gradient-mode .gradient-text {
+  background: linear-gradient(135deg, var(--accent-500), var(--accent-300));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+html:not(.gradient-mode) .gradient-text {
+  background: none;
+  -webkit-text-fill-color: unset;
+  color: var(--accent-500);
+}
+
+/* Gradient mode: logo-orb gets gradient */
+.gradient-mode .logo-orb {
+  background-color: var(--accent-500) !important;
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-400),
+    var(--accent-700)
+  ) !important;
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+
+/* Gradient mode: nav-active gets gradient */
+.gradient-mode .nav-active {
+  background-color: var(--accent-500) !important;
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-500),
+    var(--accent-600)
+  ) !important;
+  color: white !important;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+/* Gradient mode: chip-active gets gradient */
+.gradient-mode .chip-active {
+  background-color: var(--accent-500) !important;
+  background-image: linear-gradient(
+    135deg,
+    var(--accent-500),
+    var(--accent-600)
+  ) !important;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* Gradient mode: progress bar gets gradient */
+.gradient-mode .accent-progress {
+  background-color: var(--accent-500) !important;
+  background-image: linear-gradient(
+    90deg,
+    var(--accent-400),
+    var(--accent-600)
+  ) !important;
+}
+
+/* Icon accent color */
+.gradient-mode .accent-icon {
+  color: var(--accent-400);
+  filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+html:not(.gradient-mode) .accent-icon {
+  color: var(--accent-500);
+  filter: none;
+}
+
+.dark .react-datepicker {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+.dark .react-datepicker__header {
+  background-color: #0f172a;
+  border-color: #334155;
+}
+.dark .react-datepicker__current-month,
+.dark .react-datepicker__day-name,
+.dark .react-datepicker__day {
+  color: #f1f5f9;
+}
+.dark .react-datepicker__day:hover {
+  background-color: #334155;
+}
+.dark .react-datepicker__day--selected {
+  background-color: var(--accent-500);
+}
+.dark .react-datepicker__navigation-icon::before {
+  border-color: #94a3b8;
+}
+
+/* ─── Scrollbar hide ─────────────────────────────────────────────────────── */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
